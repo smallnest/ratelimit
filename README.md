@@ -1,6 +1,10 @@
 # ratelimit
---
-    import "github.com/juju/ratelimit"
+forked from [juju/ratelimit](https://github.com/juju/ratelimit) and continue to maintian.
+
+
+```
+    import "github.com/smallnest/ratelimit"
+```
 
 The ratelimit package provides an efficient token bucket implementation. See
 http://en.wikipedia.org/wiki/Token_bucket.

@@ -164,6 +164,11 @@ func NewBucketWithQuantumAndClock(fillInterval time.Duration, capacity, quantum 
 	}
 }
 
+// SetInitialTokens sets the number of tokens which will be in the initial bucket.
+func (tb *Bucket) SetInitialTokens(initialTokens int64) {
+	tb.availableTokens = initialTokens
+}
+
 // Wait takes count tokens from the bucket, waiting until they are
 // available.
 func (tb *Bucket) Wait(count int64) {
