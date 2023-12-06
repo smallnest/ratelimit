@@ -8,8 +8,6 @@
 package ratelimit
 
 import (
-	"math"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -20,7 +18,7 @@ import (
 // my laptop).
 //
 // Time is measured in equal measured ticks, a given interval
-// (fillInterval) apart. On each tick a number of tokens (quantum) are
+// (fillInterval) apart. On each tick a number of tokens (batch) are
 // added to the bucket.
 //
 // When any of the methods are called the bucket updates the number of
@@ -51,9 +49,8 @@ type Bucket struct {
 	// capacity holds the overall capacity of the bucket.
 	capacity int64
 
-	// quantum holds how many tokens are added on
-	// each tick.
-	quantum int64
+	// batch holds how many tokens are added on each tick.
+	batch int64
 
 	// fillInterval holds the interval between each tick.
 	fillInterval time.Duration
@@ -73,101 +70,51 @@ type Bucket struct {
 }
 
 // NewBucket returns a new token bucket that fills at the
-// rate of one token every fillInterval, up to the given
-// maximum capacity. Both arguments must be
-// positive. The bucket is initially full.
-func NewBucket(fillInterval time.Duration, capacity int64) *Bucket {
-	return NewBucketWithClock(fillInterval, capacity, nil)
-}
-
-// NewBucketWithClock is identical to NewBucket but injects a testable clock
-// interface.
-func NewBucketWithClock(fillInterval time.Duration, capacity int64, clock Clock) *Bucket {
-	return NewBucketWithQuantumAndClock(fillInterval, capacity, 1, clock)
-}
-
-// rateMargin specifes the allowed variance of actual
-// rate from specified rate. 1% seems reasonable.
-const rateMargin = 0.01
-
-// NewBucketWithRate returns a token bucket that fills the bucket
-// at the rate of rate tokens per second up to the given
-// maximum capacity. Because of limited clock resolution,
-// at high rates, the actual rate may be up to 1% different from the
-// specified rate.
-func NewBucketWithRate(rate float64, capacity int64) *Bucket {
-	return NewBucketWithRateAndClock(rate, capacity, nil)
-}
-
-// NewBucketWithRateAndClock is identical to NewBucketWithRate but injects a
-// testable clock interface.
-func NewBucketWithRateAndClock(rate float64, capacity int64, clock Clock) *Bucket {
-	// Use the same bucket each time through the loop
-	// to save allocations.
-	tb := NewBucketWithQuantumAndClock(1, capacity, 1, clock)
-	for quantum := int64(1); quantum < 1<<50; quantum = nextQuantum(quantum) {
-		fillInterval := time.Duration(1e9 * float64(quantum) / rate)
-		if fillInterval <= 0 {
-			continue
-		}
-		tb.fillInterval = fillInterval
-		tb.quantum = quantum
-		if diff := math.Abs(tb.Rate() - rate); diff/rate <= rateMargin {
-			return tb
-		}
-	}
-	panic("cannot find suitable quantum for " + strconv.FormatFloat(rate, 'g', -1, 64))
-}
-
-// nextQuantum returns the next quantum to try after q.
-// We grow the quantum exponentially, but slowly, so we
-// get a good fit in the lower numbers.
-func nextQuantum(q int64) int64 {
-	q1 := q * 11 / 10
-	if q1 == q {
-		q1++
-	}
-	return q1
-}
-
-// NewBucketWithQuantum is similar to NewBucket, but allows
-// the specification of the quantum size - quantum tokens
-// are added every fillInterval.
-func NewBucketWithQuantum(fillInterval time.Duration, capacity, quantum int64) *Bucket {
-	return NewBucketWithQuantumAndClock(fillInterval, capacity, quantum, nil)
-}
-
-// NewBucketWithQuantumAndClock is like NewBucketWithQuantum, but
-// also has a clock argument that allows clients to fake the passing
-// of time. If clock is nil, the system clock will be used.
-func NewBucketWithQuantumAndClock(fillInterval time.Duration, capacity, quantum int64, clock Clock) *Bucket {
-	if clock == nil {
-		clock = realClock{}
-	}
+// rate of **batch** tokens every fillInterval, up to the given
+// maximum capacity. initialTokens is the initial number of tokens in the bucket.
+// Both arguments must be positive.
+func NewBucket(fillInterval time.Duration, capacity, batch, initialTokens int64) *Bucket {
 	if fillInterval <= 0 {
 		panic("token bucket fill interval is not > 0")
 	}
 	if capacity <= 0 {
 		panic("token bucket capacity is not > 0")
 	}
-	if quantum <= 0 {
-		panic("token bucket quantum is not > 0")
+	if batch <= 0 {
+		panic("token bucket batch is not > 0")
 	}
+	if initialTokens < 0 {
+		panic("token bucket initialTokens is not >= 0")
+	}
+
+	clock := realClock{}
+
 	return &Bucket{
 		clock:           clock,
 		startTime:       clock.Now(),
 		latestTick:      0,
 		fillInterval:    fillInterval,
 		capacity:        capacity,
-		quantum:         quantum,
-		availableTokens: capacity,
+		batch:           batch,
+		availableTokens: initialTokens,
 	}
 }
 
-// SetInitialTokens sets the number of tokens which will be in the initial bucket.
-func (tb *Bucket) SetInitialTokens(initialTokens int64) {
-	tb.availableTokens = initialTokens
+// SetClock sets the clock used by the bucket to test.
+func (tb *Bucket) SetClock(clock Clock) {
+	tb.clock = clock
 }
+
+// // nextbatch returns the next batch to try after q.
+// // We grow the batch exponentially, but slowly, so we
+// // get a good fit in the lower numbers.
+// func nextbatch(q int64) int64 {
+// 	q1 := q * 11 / 10
+// 	if q1 == q {
+// 		q1++
+// 	}
+// 	return q1
+// }
 
 // Wait takes count tokens from the bucket, waiting until they are
 // available.
@@ -272,7 +219,7 @@ func (tb *Bucket) Capacity() int64 {
 
 // Rate returns the fill rate of the bucket, in tokens per second.
 func (tb *Bucket) Rate() float64 {
-	return 1e9 * float64(tb.quantum) / float64(tb.fillInterval)
+	return 1e9 * float64(tb.batch) / float64(tb.fillInterval)
 }
 
 // take is the internal version of Take - it takes the current time as
@@ -290,12 +237,12 @@ func (tb *Bucket) take(now time.Time, count int64, maxWait time.Duration) (time.
 		return 0, true
 	}
 	// Round up the missing tokens to the nearest multiple
-	// of quantum - the tokens won't be available until
+	// of batch - the tokens won't be available until
 	// that tick.
 
 	// endTick holds the tick when all the requested tokens will
 	// become available.
-	endTick := tick + (-avail+tb.quantum-1)/tb.quantum
+	endTick := tick + (-avail+tb.batch-1)/tb.batch
 	endTime := tb.startTime.Add(time.Duration(endTick) * tb.fillInterval)
 	waitTime := endTime.Sub(now)
 	if waitTime > maxWait {
@@ -320,7 +267,7 @@ func (tb *Bucket) adjustavailableTokens(tick int64) {
 	if tb.availableTokens >= tb.capacity {
 		return
 	}
-	tb.availableTokens += (tick - lastTick) * tb.quantum
+	tb.availableTokens += (tick - lastTick) * tb.batch
 	if tb.availableTokens > tb.capacity {
 		tb.availableTokens = tb.capacity
 	}

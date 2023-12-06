@@ -40,29 +40,13 @@ Bucket may be called concurrently.
 #### func  NewBucket
 
 ```go
-func NewBucket(fillInterval time.Duration, capacity int64) *Bucket
+func NewBucket(fillInterval time.Duration, capacity, batch, initialTokens int64) *Bucket
 ```
 NewBucket returns a new token bucket that fills at the rate of one token every
-fillInterval, up to the given maximum capacity. Both arguments must be positive.
-The bucket is initially full.
+fillInterval, up to the given maximum capacity. initialTokens is the initial number of tokens in the bucket,
+for example, if you want the bucket is initially full, you set initialTokens equal to capacity.
+Both arguments must be positive.
 
-#### func  NewBucketWithQuantum
-
-```go
-func NewBucketWithQuantum(fillInterval time.Duration, capacity, quantum int64) *Bucket
-```
-NewBucketWithQuantum is similar to NewBucket, but allows the specification of
-the quantum size - quantum tokens are added every fillInterval.
-
-#### func  NewBucketWithRate
-
-```go
-func NewBucketWithRate(rate float64, capacity int64) *Bucket
-```
-NewBucketWithRate returns a token bucket that fills the bucket at the rate of
-rate tokens per second up to the given maximum capacity. Because of limited
-clock resolution, at high rates, the actual rate may be up to 1% different from
-the specified rate.
 
 #### func (*Bucket) Available
 
