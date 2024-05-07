@@ -69,6 +69,23 @@ type Bucket struct {
 	latestTick int64
 }
 
+// New returns a new token bucket that fills at the rate of rate simplely.
+// Its fillInterval at least 1ms.
+// You should make sure the rate is times of 1000, otherwise the real rate is little smaller than the rate you set.
+func New(rate int64) *Bucket {
+	fillInterval := time.Second / time.Duration(rate)
+	batch := int64(1)
+	initialTokens := rate
+
+	if fillInterval < time.Millisecond {
+		batch = int64(time.Millisecond / fillInterval)
+		fillInterval = time.Millisecond
+	}
+
+	return NewBucket(fillInterval, rate, batch, initialTokens)
+
+}
+
 // NewBucket returns a new token bucket that fills at the
 // rate of **batch** tokens every fillInterval, up to the given
 // maximum capacity. initialTokens is the initial number of tokens in the bucket.

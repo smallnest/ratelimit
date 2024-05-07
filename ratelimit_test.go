@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	gc "gopkg.in/check.v1"
 )
 
@@ -370,4 +371,21 @@ func BenchmarkWait(b *testing.B) {
 	for i := b.N - 1; i >= 0; i-- {
 		tb.Wait(1)
 	}
+}
+
+func TestNew(t *testing.T) {
+	bucket := New(10000)
+
+	assert.Equal(t, bucket.Capacity(), int64(10000))
+	assert.Equal(t, bucket.Rate(), float64(10000))
+	assert.Equal(t, bucket.fillInterval, time.Millisecond)
+	assert.Equal(t, bucket.batch, int64(10))
+	assert.Equal(t, bucket.Available(), int64(10000))
+
+	bucket = New(10061)
+	assert.Equal(t, bucket.Capacity(), int64(10061))
+	assert.Equal(t, bucket.Rate(), float64(10000))
+	assert.Equal(t, bucket.fillInterval, time.Millisecond)
+	assert.Equal(t, bucket.batch, int64(10))
+	assert.Equal(t, bucket.Available(), int64(10061))
 }
